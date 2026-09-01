@@ -189,7 +189,10 @@
   <h3 style="margin-top:12px">Bu level</h3>
   <div class="stat" id="stats"></div>
   <h3 style="margin-top:12px">Oturum kaydı</h3>
-  <table id="log"><tr><th>Sv</th><th>Sonuç</th><th>Sn</th><th>Hamle</th><th>Slot</th><th>Güç</th><th>Altın</th></tr></table>
+  <label>Oyuncu adı</label>
+  <div class="row"><input id="tester" placeholder="isim" style="flex:1;padding:6px 8px;border-radius:8px;border:1px solid #2a4d40;background:#08201a;color:#dff3ea;font-family:inherit"></div>
+  <div class="row"><button id="copyLog">Tabloyu kopyala</button><button id="clearLog">Temizle</button></div>
+  <table id="log"><tr><th>Kim</th><th>Sv</th><th>Sonuç</th><th>Sn</th><th>Hamle</th><th>Slot</th><th>Güç</th><th>Altın</th></tr></table>
   <div class="note"><b>Desteler</b> (alt): ön karta dokun → uygun <b>kutuya</b> (üst) gider, yoksa <b>slotlara</b> (orta, 5 yer) düşer. Slotlar dolarsa kayıp. Level bitince 100 + yıldız kadar altın kazanırsın; güçler: Joker 200, Geri al 100, +1 slot 300, Karıştır 100, İpucu 100; serbest kutu 300 altın. Joker'e basıp tamamlamak istediğin kutuyu seç. Bir destenin ön 3 kartı bitince arka katman öne kayar. 2 kutu açık başlar; diğer ikisi 300 altınla açılır ve ilk koyduğun kart hedefi olur (serbest). koyu kutular 4'lü sıralı hedef: sadece sıradaki kart gösterilir (sarı çerçeve), yerleşenler solda kapalı deste olarak birikir, sayaç kaçta olduğunu söyler; erken gelen kart slota düşer ve sırası gelince kendiliğinden uçar.  hedefe uymayan kart ele gider. 4. "serbest" kutu "+" ile bir kez açılır ve ilk koyduğun kart onun hedefi olur.</div>
 </div>
 
@@ -216,10 +219,17 @@ const LEVELS={
   9:{shelves:10,layers:4,types:10,faceDown:1,runs:.8,jokers:0,noise:.20},
   10:{shelves:10,layers:3,types:12,faceDown:2,runs:.85,jokers:0,noise:.45,pend:5,dmax:20,minSlots:4,wr:[.2,.55]},
 };
+function cfgOf(lv){ if(LEVELS[lv])return LEVELS[lv];
+  const b=LEVELS[10], n=lv-10;
+  return {...b, noise:Math.min(.6,b.noise+.02*n), types:Math.min(13,b.types+(n>2?1:0)),
+          faceDown:Math.min(3,(b.faceDown||0)+(n>4?1:0)), wr:[.15,.6]};
+}
 const HAND=5, OPEN_BOXES=2, TOTAL_BOXES=4, JOKER='*', RUN_LEN=4, COMBO_MS=7000;
 let rule='rs', level=1, runMode='auto', mixMode='auto';
 let gold=500; const COSTS={joker:200,undo:100,slot:300,shuffle:100,hint:100,magnet:200}, COST_FREEBOX=300, LEVEL_GOLD=100;
 let G=null, history=[], sess=[];
+const LS={get(k,d){try{const v=localStorage.getItem(k);return v==null?d:JSON.parse(v)}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
+sess=LS.get('csj_sess',[]);
 
 const key=c=>c.r===JOKER?JOKER:(rule==='rank'?c.r:c.r+c.s);
 const rnd=n=>Math.floor(Math.random()*n);
@@ -231,7 +241,7 @@ const parse=k=>rule==='rank'?{r:k,s:null}:{r:k.slice(0,-1),s:k.slice(-1)};
 // ---------- generation ----------
 // groups: {id:{kind:'set'|'run', keys:[k,k,k], cards:[{r,s},...]}}
 function genLevel(lv){
-  const cfg=LEVELS[lv]; const total=cfg.shelves*cfg.layers*3; const nJ=Math.min(cfg.jokers,total/3); const nGroups=(total-nJ)/3;
+  const cfg=cfgOf(lv); const total=cfg.shelves*cfg.layers*3; const nJ=Math.min(cfg.jokers,total/3); const nGroups=(total-nJ)/3;
   const ratio=runMode==='off'?0:runMode==='on'?1:cfg.runs;
   const RUN=RUN_LEN; const realTotal=total-nJ;
   let nRuns=Math.floor(realTotal*ratio/RUN); nRuns-=nRuns%3; // RUN*nRuns must be a multiple of 3 so the rest splits into sets
@@ -409,7 +419,7 @@ function playout(state,cap,eps){
   return {win:st.left===0,mx:st._mx||0}}
 function winStats(gen,n){let w=0,mx=0;for(let i=0;i<n;i++){const st=probeState(gen);st._mx=0;const r=playout(st,HAND,.8);if(r.win){w++;mx+=r.mx}}return {wr:w/n,avgMx:w?mx/w:0}}
 function probeState(gen,open){return {groups:gen.groups,shelves:gen.shelves.map(l=>({layers:l,li:0,cur:l[0].slice()})),boxes:Array(TOTAL_BOXES).fill(null),open:open||OPEN_BOXES,hand:[],left:gen.real,queues:gen.queues,qi:gen.queues.map(()=>0)}}
-function tryOnce(lv){const cfg=LEVELS[lv];const gen=genLevel(lv);
+function tryOnce(lv){const cfg=cfgOf(lv);const gen=genLevel(lv);
   if(!cfg.minSlots&&!cfg.gate)return{gen,ok:true};
   if(cfg.gate)bury(gen,6,cfg.gate==='box');
   const big=gen.real>80, bLo=big?40000:25000, bHi=big?120000:30000;
@@ -421,7 +431,7 @@ function tryOnce(lv){const cfg=LEVELS[lv];const gen=genLevel(lv);
   else{hard=!solvable(probeState(gen,2),bLo,false,HAND);ok=hard&&solvable(probeState(gen,3),bHi,false,HAND)}
   return{gen,ok,hard}}
 function genVerified(lv){
-  const cfg=LEVELS[lv];
+  const cfg=cfgOf(lv);
   if(!cfg.minSlots&&!cfg.gate)return genLevel(lv);
   let fb=null;
   for(let a=0;a<24;a++){const r=tryOnce(lv);if(r.ok)return r.gen;if(r.hard&&!fb)fb=r.gen}
@@ -434,6 +444,7 @@ function workerSrc(){
 const RANKS=${JSON.stringify(RANKS)};const SUITS=${JSON.stringify(SUITS)};const FACE=new Set(${JSON.stringify([...FACE])});
 const HAND=${HAND},OPEN_BOXES=${OPEN_BOXES},TOTAL_BOXES=${TOTAL_BOXES},JOKER='${JOKER}',RUN_LEN=${RUN_LEN};
 const LEVELS=${JSON.stringify(LEVELS)};
+const cfgOf=${cfgOf.toString()};
 const rnd=${rnd.toString()};const shuffle=${shuffle.toString()};const key=${key.toString()};
 const isRunT=${isRunT.toString()};
 const slotFor=${slotFor.toString()};
@@ -457,7 +468,7 @@ onmessage=e=>{const d=e.data;rule=d.rule;runMode=d.runMode||'auto';mixMode=d.mix
   postMessage({lv:d.lv,gen:fb||genLevel(d.lv)})};`;
 }
 let PWORK=null;
-function pregen(lv){const cfg=LEVELS[lv];if(!cfg||(!cfg.minSlots&&!cfg.gate)||PREGEN[lv]||PREGEN['_r'+lv])return;
+function pregen(lv){const cfg=cfgOf(lv);if(!cfg||(!cfg.minSlots&&!cfg.gate)||PREGEN[lv]||PREGEN['_r'+lv])return;
   if(typeof Worker!=='undefined'){
     if(!PWORK){try{PWORK=new Worker(URL.createObjectURL(new Blob([workerSrc()],{type:'text/javascript'})));
       PWORK.onmessage=e=>{if(e.data.chk!==undefined){onRescueResult(e.data);return}PREGEN[e.data.lv]=e.data.gen;PREGEN['_r'+e.data.lv]=false;pumpPregen()};
@@ -479,6 +490,7 @@ function newGame(lv){
   let gen;
   if(PREGEN[lv]){gen=PREGEN[lv];delete PREGEN[lv];setTimeout(()=>pregen(lv),2000)}
   else gen=genVerified(lv);
+  if(lv>=10)setTimeout(()=>pregen(lv+1),2500);
   const base={groups:gen.groups,shelves:gen.shelves.map(l=>({layers:l,li:0,cur:l[0].slice()})),boxes:Array(TOTAL_BOXES).fill(null),open:OPEN_BOXES,hand:[],left:gen.real,queues:null,qi:null};
   const queues=gen.queues;
   G={...base,queues,qi:queues.map(()=>0),total:gen.real,faceDown:gen.faceDown,score:0,combo:0,comboUntil:0,moves:0,maxHand:0,handMax:HAND,jokerUsed:0,selecting:false,t0:Date.now(),over:false,plusUsed:false,solvableFlag:true};
@@ -487,7 +499,7 @@ function newGame(lv){
   renderPowers();
   const nu=POWERS.filter(pw=>pw.ul===lv);
   if(nu.length)setTimeout(()=>{nu.forEach(pw=>{const b=document.getElementById(pw.id);if(b)b.classList.add('newpw')});toast('Yeni güç açıldı: '+nu.map(p=>p.nm).join(' + ')+'!');SND.done(2)},600);
-  if(LEVELS[lv].gate&&gold<300){gold=300;toast('Hedefler hazır — altın desteği: 300')}else toast('Hedefler hazır');
+  if(cfgOf(lv).gate&&gold<300){gold=300;toast('Hedefler hazır — altın desteği: 300')}else toast('Hedefler hazır');
   history=[]; render();
 }
 function snap(){history.push(JSON.stringify({shelves:G.shelves.map(s=>({li:s.li,cur:s.cur,layers:s.layers})),boxes:G.boxes,hand:G.hand,left:G.left,score:G.score,combo:G.combo,comboUntil:G.comboUntil,open:G.open,qi:G.qi,handMax:G.handMax}));if(history.length>30)history.shift()}
@@ -731,11 +743,11 @@ function checkDeadlock(){ if(G.over||G.left===0)return; requestRescue();
 }
 function endGame(win,reason){ if(G.over)return; if(!win&&G.left===0){win=true;reason=undefined} G.over=true; SND[win?'win':'lose'](); const sec=Math.round((Date.now()-G.t0)/1000);
   let earn=0; if(win){earn=LEVEL_GOLD+G.score; gold+=earn}
-  sess.push({lv:level,rule,win,sec,moves:G.moves,maxHand:G.maxHand,joker:G.jokerUsed,spent:G.spent||0,powers:G.powers||0}); renderLog();
+  sess.push({who:(document.getElementById('tester').value||'-').trim(),ts:new Date().toISOString().slice(0,16).replace('T',' '),lv:level,rule,win,sec,moves:G.moves,maxHand:G.maxHand,joker:G.jokerUsed,spent:G.spent||0,powers:G.powers||0}); LS.set('csj_sess',sess); renderLog();
   document.getElementById('ovTitle').textContent=win?'Seviye tamam!':(reason==='dead'?'Çıkmaz oluştu':'Slotlar doldu');
   document.getElementById('ovBody').innerHTML=(reason==='dead'?'Gereken kartlar tükendi, dağıtım yenilenmeli.<br>':'')+`${sec} sn · ${G.moves} hamle · ⭐ ${G.score}`+(win?`<br>+${LEVEL_GOLD} bölüm + ${G.score} yıldız = <b>+${earn} altın</b>`:'');
-  document.getElementById('ovBtn').textContent=win?(LEVELS[level+1]?'Sonraki seviye':'Başa dön'):'Tekrar dene';
-  document.getElementById('ovBtn').onclick=()=>{document.getElementById('overlay').classList.remove('show');newGame(win?(LEVELS[level+1]?level+1:1):level)};
+  document.getElementById('ovBtn').textContent=win?'Sonraki seviye':'Tekrar dene';
+  document.getElementById('ovBtn').onclick=()=>{document.getElementById('overlay').classList.remove('show');newGame(win?level+1:level)};
   document.getElementById('overlay').classList.add('show');
 }
 
@@ -800,7 +812,7 @@ function renderStats(){
 }
 
 let tt;function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');clearTimeout(tt);tt=setTimeout(()=>t.classList.remove('show'),1600)}
-function renderLog(){const tb=document.getElementById('log');tb.innerHTML='<tr><th>Sv</th><th>Sonuç</th><th>Sn</th><th>Hamle</th><th>Slot</th><th>Güç</th><th>Altın</th></tr>'+sess.map(r=>`<tr><td>${r.lv}</td><td style="color:${r.win?'#5dcaa5':'#f09595'}">${r.win?'✔':'✘'}</td><td>${r.sec}</td><td>${r.moves}</td><td>${r.maxHand}</td><td>${r.powers}</td><td>${r.spent}</td></tr>`).join('')}
+function renderLog(){const tb=document.getElementById('log');tb.innerHTML='<tr><th>Kim</th><th>Sv</th><th>Sonuç</th><th>Sn</th><th>Hamle</th><th>Slot</th><th>Güç</th><th>Altın</th></tr>'+sess.map(r=>`<tr><td>${r.who||'-'}</td><td>${r.lv}</td><td style="color:${r.win?'#5dcaa5':'#f09595'}">${r.win?'✔':'✘'}</td><td>${r.sec}</td><td>${r.moves}</td><td>${r.maxHand}</td><td>${r.powers}</td><td>${r.spent}</td></tr>`).join('')}
 
 // ---------- events ----------
 document.getElementById('board').addEventListener('click',e=>{
@@ -848,11 +860,20 @@ function tickCombo(){ if(!G)return; const now=Date.now();
   document.getElementById('combo').textContent=active?`Combo x${G.combo}`:'';
 }
 document.querySelectorAll('[data-shg]').forEach(b=>b.addEventListener('click',()=>{SHG=+b.dataset.shg;document.querySelectorAll('[data-shg]').forEach(x=>x.classList.toggle('on',x===b))}));
+renderLog();
 setTimeout(pumpPregen,1500);
 setInterval(tickCombo,100);
 setInterval(()=>{if(G&&!G.over)renderStats()},1000);
 document.getElementById('panelBtn').onclick=()=>document.getElementById('panel').classList.toggle('open');
 document.getElementById('panelClose').onclick=()=>document.getElementById('panel').classList.remove('open');
+(()=>{const t=document.getElementById('tester');t.value=LS.get('csj_name','');t.oninput=()=>LS.set('csj_name',t.value)})();
+document.getElementById('copyLog').onclick=async()=>{
+  const head='kim\ttarih\tsv\tsonuc\tsn\thamle\tslot\tguc\taltin';
+  const txt=[head,...sess.map(r=>[r.who||'-',r.ts||'',r.lv,r.win?'kazandi':'kaybetti',r.sec,r.moves,r.maxHand,r.powers,r.spent].join('\t'))].join('\n');
+  try{await navigator.clipboard.writeText(txt);toast(`${sess.length} satır kopyalandı`)}
+  catch(e){const ta=document.createElement('textarea');ta.value=txt;document.body.appendChild(ta);ta.select();try{document.execCommand('copy');toast(`${sess.length} satır kopyalandı`)}catch(e2){toast('Kopyalanamadı')}ta.remove()}
+};
+document.getElementById('clearLog').onclick=()=>{if(!sess.length)return;if(confirm('Oturum kaydı silinsin mi?')){sess=[];LS.set('csj_sess',sess);renderLog();toast('Kayıt temizlendi')}};
 document.getElementById('devUnlock').onclick=()=>{DEVUNLOCK=!DEVUNLOCK;document.getElementById('devUnlock').classList.toggle('on',DEVUNLOCK);renderPowers();render();toast(DEVUNLOCK?'Tüm güçler açık (test)':'Güç kilitleri normale döndü')};
 document.getElementById('sndBtn').onclick=()=>{SND.on=!SND.on;document.getElementById('sndBtn').textContent=SND.on?'🔊':'🔇'};
 newGame(1);
